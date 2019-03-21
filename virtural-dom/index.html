@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+</head>
+<body>
+    <div id='app'>
+
+    </div>
+    <script>
+        let patch = {};
+        patch.NODE_DELETE = 'NODE_DELETE'; // 节点被删除
+        patch.NODE_TEXT_MODIFY = 'NODE_TEXT_MODIFY'; // 文本节点被更改
+        patch.NODE_REPLACE = 'NODE_REPLACE'; // 节点被替代
+        patch.NODE_ADD = 'NODE_ADD'; // 添加节点
+        patch.NODE_ATTRIBUTE_MODIFY = 'NODE_ATTRIBUTE_MODIFY'; // 更新属性
+        patch.NODE_ATTRIBUTE_ADD = 'NODE_ATTRIBUTE_ADD'; // 添加属性
+        patch.NODE_ATTRIBUTE_DELETE = 'NODE_ATTRIBUTE_DELETE'; // 删除属性
+        class CrtatElement{
+            constructor(tagName,props,children){
+                this.tagName = tagName;
+                this.props = props;
+                this.children = children;
+            }
+            render(){
+                let virtualDOM  = document.createElement(this.tagName);     // 根据tagName构建
+                
+                for(let propName in this.props){                            // 设置节点的DOM属性
+                    virtualDOM.setAttribute(propName,this.props[propName])
+                }
+
+                this.children.forEach( el => {
+                        let childElement = (el instanceof  CrtatElement) ? el.render() : document.createTextNode(el);            // 如果子节点也是虚拟DOM，递归构建DOM节点，如果是字符串，则只构建文本节点
+                        virtualDOM.appendChild(childElement);
+                } );
+                return virtualDOM
+            }
+        }   
+
+        function element(tagName,props,children){
+            return new CrtatElement(tagName,props,children)
+        }
+
+        function diff(oldTree,newTree){
+            let index = 0,     
+                patches = {} 
+            dfsWalk(oldTree, newTree, index, patches)
+            return patches
+        }
+
+        function dfsWalk(oldNode, newNode, index, patches) {
+            const currentIndex = index;
+            const currentIndexPatches  = [];
+            
+            if(newNode === undefined){
+                // 节点被移除
+                currentIndexPatches.push({
+                    type:patch.NODE_DELETE,
+                })
+            }else if(typeof oldNode === 'string' && typeof newNode === 'string' ){
+                // 文本节点被修改  
+                if(oldNode !== newNode){
+                  
+                    currentIndexPatches.push({
+                        type:patch.NODE_TEXT_MODIFY,
+                        value:newNode
+                    })
+                }
+             
+            }else if(oldNode.tagName === newNode.tagName && oldNode.key === newNode.key){
+                var propsPatches  = diffProps(oldNode,newNode);
+                if(propsPatches){
+                    propsPatches.forEach(v => {
+                        currentIndexPatches.push(v)
+                    })
+                }
+                diffChildren(oldNode.children, newNode.children, index, currentIndexPatches, patches);
+            }else {
+                currentIndexPatches.push({
+                    type: patch.NODE_REPLACE,
+                    value: newNode,
+                })
+            }
+            if(currentIndexPatches.length > 0) {
+               patches[currentIndex] = patches[currentIndex] ? [...patches[currentIndex],...currentIndexPatches] : currentIndexPatches;
+            }
+        }
+
+        function diffChildren(oldChildren,newChildren,index,currentIndexPatches,patches){
+            const currentIndex  = index;
+            if(oldChildren.length < newChildren.length){
+             
+                // 有元素被添加
+                let i = 0;
+                for(; i < oldChildren.length; i++){
+                    if(typeof oldChildren[i] !== 'string' && typeof newChildren[i] !== 'string' ){
+                        index++;
+                    }
+                    dfsWalk(oldChildren[i],newChildren[i],index,patches)
+                }
+                for (; i < newChildren.length; i++) {
+                    currentIndexPatches.push({
+                        type: patch.NODE_ADD,
+                        value: newChildren[i]
+                    })
+                }
+            }else {
+                // 对比新旧子元素的变化
+                for(let i = 0; i< oldChildren.length; i++) {
+                    if(typeof oldChildren[i] !== 'string' && typeof newChildren[i] !== 'string' ){
+                        index++;
+                    }
+                    dfsWalk(oldChildren[i], newChildren[i], index, patches)
+                }
+            }           
+        }
+
+        function diffProps(oldNode,newNode){
+            let oldProps = oldNode.props,
+                newProps = newNode.props,
+                count = 0,
+                key,
+                value,
+                propsPatches = [];
+            // 遍历旧的属性，找到被删除和修改的情况
+            for(const propKey in oldProps){
+                // 新属性不存在，旧属性存在，删除
+                if(!newProps .hasOwnProperty(propKey)){
+                    count++
+                    propsPatches.push({
+                        type:patch.NODE_ATTRIBUTE_DELETE,
+                        key:propKey
+                    })
+                } else if(newProps [propKey] !== oldProps[propKey]){  // 新旧属性不相等，修改
+                    count++
+                    propsPatches.push({
+                        type:patch.NODE_ATTRIBUTE_MODIFY,
+                        key:propKey,
+                        value:newProps [propKey]    
+                    })
+                }
+            }
+            // 遍历新元素，找到添加的部分
+            for(const propKey in newProps ){
+                if(!oldProps.hasOwnProperty(propKey)){
+                    count++
+                    propsPatches.push({
+                        type:patch.NODE_ATTRIBUTE_ADD,
+                        key:propKey,
+                        value:newProps [propKey]
+                    })
+                }
+            }
+            if(count === 0){
+                return null;
+            }
+            
+            return propsPatches;
+        }
+
+  
+        function patch1($dom, patches) {
+            const index = 0
+            dfsWalk1($dom, index, patches);
+        }
+        
+        // 根据不同类型的差异对当前节点进行 DOM 操作：
+        function dfsWalk1($node, index, patches, isEnd = false){
+         
+            if(patches[index]){
+   
+                patches[index].forEach( v => {
+                  
+                    switch(v.type){
+                        case patch.NODE_DELETE:
+                        break;
+                        case patch.NODE_TEXT_MODIFY:
+                            $node.textContent = v.value;
+                        break;
+                        case patch.NODE_REPLACE:
+                        break;                      
+                        case patch.NODE_ADD:
+                            $node.appendChild(v.value.render())
+                         
+                        break;
+                        case patch.NODE_ATTRIBUTE_MODIFY:
+                            $node.setAttribute(v.key, v.value);
+                        break;
+                        case patch.NODE_ATTRIBUTE_ADD:
+                            $node.setAttribute(v.key, v.value);
+                        break;
+                        case patch.NODE_ATTRIBUTE_DELETE:
+                        break;
+                        default:
+                            // console.log(v)
+
+                    }
+                })
+            };
+            if(isEnd){
+                return;
+            }
+       
+            for (let i = 0; i < $node.children.length; i++) {  
+                index++;
+                dfsWalk1($node.children[i], index, patches);
+            }
+           
+        }
+
+        // 2.通过虚拟DOM构建真正的DOM
+        const oldTree = element('div',{id:'div'},[
+                        element('h2',{style:'color: red'},['this is old dom']),
+                        element('ul',{id:'list'},[
+                            element('li',{class:'item'},['item 1']),
+                            element('li',{class:'item'},['item 2']),
+                            element('li',{class:'item'},['item 3']),
+                        ])]);
+        const $dom = oldTree.render();
+        const $app = document.querySelector('#app');
+        $app.replaceWith($dom);
+        const newTree = element('div',{id:'div1'},[
+                        element('h2',{id:'h2',style:'color: yellow;font-size:50px'},['this is new dom']),
+                        element('ul',{id:'list1'},[
+                            element('li',{class:'item'},['item 1']),
+                            element('li',{class:'item'},['item 3']),
+                            element('li',{class:'item'},['item 4']),
+                            element('li',{class:'item'},['item 5']),
+        ])]);
+        
+        const patches = diff(oldTree, newTree);
+        patch1($dom,patches)
+      
+    </script>
+ 
+</body>
+
+
+</html>
